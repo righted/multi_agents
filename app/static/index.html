@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>婚礼协调员 · 多智能体演示</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; overflow: hidden;
+      font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: #f5f6f8; color: #1f2329;
+    }
+    .hidden { display: none !important; }
+
+    /* 登录 */
+    #login { height: 100%; display: flex; align-items: center; justify-content: center; }
+    .card {
+      width: 340px; background: #fff; border-radius: 12px; padding: 26px 24px;
+      box-shadow: 0 6px 24px rgba(31,35,41,.08);
+    }
+    .card h2 { margin: 0 0 6px; font-size: 18px; }
+    .card p { margin: 0 0 18px; font-size: 13px; color: #8f959e; }
+    .card input {
+      width: 100%; padding: 10px 12px; margin-bottom: 12px; font: inherit;
+      border: 1px solid #d0d3d9; border-radius: 8px; outline: none;
+    }
+    .card input:focus { border-color: #3370ff; }
+    .card button {
+      width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 14px;
+      cursor: pointer; background: #3370ff; color: #fff;
+    }
+    .card .tip { margin-top: 12px; font-size: 12px; color: #f53f3f; min-height: 18px; }
+
+    /* 主界面 */
+    #app { height: 100%; display: flex; }
+
+    aside {
+      width: 248px; flex: 0 0 248px; background: #fbfbfc; border-right: 1px solid #e5e6eb;
+      display: flex; flex-direction: column; padding: 14px 12px;
+    }
+    aside .brand { font-size: 13px; color: #8f959e; padding: 2px 6px 10px; }
+    aside .new-btn {
+      width: 100%; padding: 9px 12px; border: 1px dashed #c9cdd4; background: #fff;
+      border-radius: 8px; cursor: pointer; font: inherit; font-size: 14px; color: #1f2329;
+    }
+    aside .new-btn:hover { border-color: #3370ff; color: #3370ff; }
+    #sessions { flex: 1; overflow-y: auto; margin-top: 12px; }
+    .session {
+      padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 2px;
+      font-size: 13.5px; color: #4e5969; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .session:hover { background: #f0f2f5; }
+    .session.active { background: #e8f0ff; color: #1f2329; }
+    .session .time { display: block; font-size: 11px; color: #a0a7b4; margin-top: 2px; }
+    aside .foot {
+      border-top: 1px solid #e5e6eb; padding-top: 10px; display: flex;
+      align-items: center; gap: 8px; font-size: 13px; color: #4e5969;
+    }
+    aside .foot .who { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    aside .foot button {
+      border: 1px solid #d0d3d9; background: #fff; border-radius: 6px;
+      padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+
+    .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .chat header {
+      display: flex; align-items: center; gap: 10px; padding: 14px 22px;
+      background: #fff; border-bottom: 1px solid #e5e6eb;
+    }
+    .chat header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+    .chat header .sid { font-size: 12px; color: #8f959e; margin-left: auto; }
+
+    main { flex: 1; overflow-y: auto; padding: 20px; }
+    .msg { max-width: 780px; margin: 0 auto 16px; display: flex; gap: 10px; }
+    .msg .who {
+      flex: 0 0 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: #fff; background: #3370ff;
+    }
+    .msg.assistant .who { background: #00b42a; }
+    .bubble {
+      background: #fff; border-radius: 10px; padding: 10px 14px;
+      white-space: pre-wrap; word-break: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04); flex: 1;
+    }
+    .msg.user .bubble { background: #e8f0ff; }
+    .bubble .md { white-space: normal; }
+
+    /* Markdown 渲染样式 */
+    .md > :first-child { margin-top: 0; }
+    .md > :last-child { margin-bottom: 0; }
+    .md h1, .md h2, .md h3, .md h4 { margin: 14px 0 8px; line-height: 1.4; font-weight: 600; }
+    .md h1 { font-size: 19px; }
+    .md h2 { font-size: 17px; }
+    .md h3 { font-size: 15.5px; }
+    .md h4 { font-size: 15px; }
+    .md p { margin: 8px 0; }
+    .md ul, .md ol { margin: 8px 0; padding-left: 22px; }
+    .md li { margin: 3px 0; }
+    .md code {
+      background: #f2f3f5; padding: 1px 5px; border-radius: 4px;
+      font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    }
+    .md pre { background: #f7f8fa; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 10px 0; }
+    .md pre code { background: none; padding: 0; }
+    .md table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 14px; }
+    .md th, .md td { border: 1px solid #e5e6eb; padding: 6px 9px; text-align: left; }
+    .md th { background: #f7f8fa; font-weight: 600; }
+    .md blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid #e5e6eb; color: #86909c; }
+    .md hr { border: none; border-top: 1px solid #e5e6eb; margin: 14px 0; }
+    .md a { color: #3370ff; }
+
+    .steps { margin-bottom: 6px; }
+    .step { margin-bottom: 2px; }
+    .step-head {
+      display: block; width: 100%; text-align: left; border: none; background: none;
+      padding: 1px 0; cursor: pointer; font-size: 12.5px; color: #4e5969;
+      font-family: ui-monospace, Consolas, "Courier New", monospace;
+    }
+    .step-head:hover { color: #1f2329; }
+    .step.done .step-head { color: #6b7280; }
+    .step-sum { color: #a0a7b4; }
+    .step-body {
+      margin: 4px 0 6px 3px; padding-left: 10px; border-left: 2px solid #e5e6eb;
+      font-size: 12px; line-height: 1.6; color: #86909c;
+      font-family: ui-monospace, Consolas, "Courier New", monospace;
+      white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;
+    }
+
+    .think { margin-bottom: 8px; }
+    .think-head {
+      border: none; background: none; padding: 0; cursor: pointer;
+      font: inherit; font-size: 12.5px; color: #8b919c;
+    }
+    .think-head:hover { color: #4e5969; }
+    .think.running .think-head::after {
+      content: "…"; animation: think-blink 1.2s steps(2, start) infinite;
+    }
+    @keyframes think-blink { 50% { opacity: .25; } }
+    .think-body {
+      margin: 8px 0 0 3px; padding-left: 10px; border-left: 2px solid #e5e6eb;
+      font-size: 12.5px; line-height: 1.75; color: #86909c;
+      white-space: pre-wrap; word-break: break-word;
+      max-height: 240px; overflow-y: auto;
+    }
+    .typing { font-size: 12.5px; color: #a0a7b4; padding: 4px 0; }
+    .typing::after { content: "…"; animation: think-blink 1.2s steps(2, start) infinite; }
+
+    footer { padding: 14px 20px 20px; background: #fff; border-top: 1px solid #e5e6eb; }
+    .input-wrap { max-width: 780px; margin: 0 auto; display: flex; gap: 10px; }
+    textarea {
+      flex: 1; resize: none; height: 52px; padding: 10px 12px; font: inherit;
+      border: 1px solid #d0d3d9; border-radius: 8px; outline: none;
+    }
+    textarea:focus { border-color: #3370ff; }
+    .send {
+      width: 88px; border: none; border-radius: 8px; background: #3370ff;
+      color: #fff; font-size: 15px; cursor: pointer;
+    }
+    .send:disabled { background: #a9c0ff; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <h2>婚礼协调员</h2>
+    <p>登录后开始对话，每个账号的会话互相隔离</p>
+    <input id="username" placeholder="用户名" autocomplete="username" />
+    <input id="password" type="password" placeholder="密码" autocomplete="current-password" />
+    <button id="loginBtn">登录</button>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <aside>
+    <div class="brand">婚礼协调员</div>
+    <button class="new-btn" id="newChat">＋ 新对话</button>
+    <div id="sessions"></div>
+    <div class="foot">
+      <span class="who" id="currentUser"></span>
+      <button id="logout">退出</button>
+    </div>
+  </aside>
+
+  <div class="chat">
+    <header>
+      <h1>对话</h1>
+      <span class="sid" id="sid"></span>
+    </header>
+    <main id="list"></main>
+    <footer>
+      <div class="input-wrap">
+        <textarea id="input" placeholder="比如：从成都出发，十二月中旬在云南香格里拉办 66 人的婚礼，歌单要 pop 和 rnb"></textarea>
+        <button class="send" id="send">发送</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+<script>
+const loginEl = document.getElementById("login");
+const appEl = document.getElementById("app");
+const tipEl = document.getElementById("tip");
+const listEl = document.getElementById("list");
+const sessionsEl = document.getElementById("sessions");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const sidEl = document.getElementById("sid");
+
+let token = localStorage.getItem("wedding_token") || "";
+let threadId = localStorage.getItem("wedding_thread_id") || crypto.randomUUID();
+localStorage.setItem("wedding_thread_id", threadId);
+
+const TOOL_LABELS = {
+  flight: "查询航班",
+  search: "搜索场地",
+  music: "挑选歌单",
+  update_info: "记录婚礼信息",
+  tavily_search: "网页搜索",
+  tavily_search_results_json: "网页搜索",
+  query_with_db: "查询音乐库",
+  list_tables: "查看数据表",
+  add: "数学计算",
+  subtract: "数学计算",
+  get_current_time: "查询时间",
+  convert_time: "时区换算",
+};
+
+function showLogin(msg) {
+  loginEl.classList.remove("hidden");
+  appEl.classList.add("hidden");
+  if (msg) tipEl.textContent = msg;
+}
+
+function showChat() {
+  loginEl.classList.add("hidden");
+  appEl.classList.remove("hidden");
+  document.getElementById("currentUser").textContent = localStorage.getItem("wedding_user") || "";
+  updateSid();
+  inputEl.focus();
+}
+
+function updateSid() {
+  sidEl.textContent = "会话 " + threadId.slice(0, 8);
+}
+
+function renderMarkdown(el) {
+  if (!el || !el._md) return;
+  el.innerHTML = DOMPurify.sanitize(marked.parse(el._md));
+}
+
+function addMessage(role, text) {
+  const row = document.createElement("div");
+  row.className = "msg " + role;
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = role === "user" ? "我" : "AI";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  const flow = document.createElement("div");
+  flow.className = "flow";
+  bubble.appendChild(flow);
+
+  // 按时间顺序排列：一段文字、一组工具步骤、又一段文字……
+  const state = { flow, stepsEl: null, textEl: null };
+
+  if (role === "assistant") {
+    if (text) {
+      state.textEl = document.createElement("div");
+      state.textEl.className = "md";
+      state.textEl._md = text;
+      flow.appendChild(state.textEl);
+      renderMarkdown(state.textEl);
+    }
+  } else {
+    const line = document.createElement("div");
+    line.textContent = text;
+    flow.appendChild(line);
+  }
+
+  row.appendChild(who);
+  row.appendChild(bubble);
+  listEl.appendChild(row);
+  listEl.scrollTop = listEl.scrollHeight;
+  return { bubble, flow, state };
+}
+
+function addStep(stepsEl, ev) {
+  const box = document.createElement("div");
+  box.className = "step";
+  box.dataset.name = ev.name;
+
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "step-head";
+  head.textContent = `▸ ${ev.who} · ${TOOL_LABELS[ev.name] || ev.name}`;
+
+  const body = document.createElement("div");
+  body.className = "step-body";
+  body.hidden = true;
+
+  head.addEventListener("click", () => { body.hidden = !body.hidden; });
+
+  box.appendChild(head);
+  box.appendChild(body);
+  box._args = "";
+  box._think = "";
+  box._label = `${ev.who} · ${TOOL_LABELS[ev.name] || ev.name}`;
+  box.dataset.who = ev.who || "";
+  stepsEl.appendChild(box);
+}
+
+function appendArgs(stepsEl, frag) {
+  if (!stepsEl) return;
+  const boxes = stepsEl.querySelectorAll(".step");
+  const last = boxes[boxes.length - 1];
+  if (last) last._args += frag;
+}
+
+function appendSubThink(stepsEl, ev) {
+  if (!stepsEl) return;
+  const boxes = stepsEl.querySelectorAll(".step");
+  for (let i = boxes.length - 1; i >= 0; i--) {
+    const box = boxes[i];
+    if (box.dataset.who === ev.who && !box.classList.contains("done")) {
+      box._think += ev.text;
+      const head = box.querySelector(".step-head");
+      if (head && box._label) {
+        head.textContent = `▸ ${box._label} · 思考中 ${box._think.length} 字`;
+      }
+      return;
+    }
+  }
+}
+
+function finishStep(stepsEl, ev) {
+  if (!stepsEl) return;
+  const boxes = stepsEl.querySelectorAll(".step");
+  let target = null;
+  for (const box of boxes) {
+    if (box.dataset.name === ev.name && !box.classList.contains("done")) target = box;
+  }
+  if (!target) return;
+
+  target.classList.add("done");
+  const head = target.querySelector(".step-head");
+  head.textContent = `✓ ${ev.who} · ${TOOL_LABELS[ev.name] || ev.name}`;
+  if (ev.summary) {
+    const sum = document.createElement("span");
+    sum.className = "step-sum";
+    sum.textContent = " · " + ev.summary + (ev.ms != null ? ` · ${(ev.ms / 1000).toFixed(1)}s` : "");
+    head.appendChild(sum);
+  }
+
+  const parts = [];
+  if (target._think) parts.push("思考: " + target._think.trim());
+  if (target._args) parts.push("参数: " + target._args);
+  if (ev.detail) parts.push("结果: " + ev.detail);
+  target.querySelector(".step-body").textContent = parts.join("\n\n");
+}
+
+function newThink(flow) {
+  const box = document.createElement("div");
+  box.className = "think running";
+
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "think-head";
+  head.textContent = "✻ 思考中";
+
+  const body = document.createElement("div");
+  body.className = "think-body";
+  body.hidden = true;
+
+  head.addEventListener("click", () => {
+    body.hidden = !body.hidden;
+    if (!body.hidden) body.textContent = box._buf || "";
+  });
+
+  box.appendChild(head);
+  box.appendChild(body);
+  box._buf = "";
+  box._start = performance.now();
+  box._done = false;
+  flow.appendChild(box);
+  return box;
+}
+
+function closeThink(box) {
+  if (!box || box._done) return;
+  box._done = true;
+  box.classList.remove("running");
+  const secs = ((performance.now() - box._start) / 1000).toFixed(1);
+  box.querySelector(".think-head").textContent = `✻ 思考了 ${secs} 秒`;
+  box.querySelector(".think-body").textContent = box._buf;
+}
+
+function renderSessions(list) {
+  sessionsEl.innerHTML = "";
+  for (const item of list) {
+    const el = document.createElement("div");
+    el.className = "session" + (item.thread_id === threadId ? " active" : "");
+    el.title = item.title;
+    el.textContent = item.title;
+    const time = document.createElement("span");
+    time.className = "time";
+    const when = new Date(item.updated_at);
+    time.textContent = isNaN(when.getTime())
+      ? (item.updated_at || "")
+      : when.toLocaleString("zh-CN", {
+          month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+        });
+    el.appendChild(time);
+    el.addEventListener("click", () => openSession(item.thread_id));
+    sessionsEl.appendChild(el);
+  }
+}
+
+async function api(path, options = {}) {
+  const headers = Object.assign({}, options.headers || {});
+  if (token) headers["Authorization"] = "Bearer " + token;
+  return fetch(path, Object.assign({}, options, { headers }));
+}
+
+async function loadSessions() {
+  try {
+    const resp = await api("/api/v1/chat/sessions");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderSessions(data.sessions || []);
+  } catch { /* 忽略 */ }
+}
+
+async function openSession(id) {
+  threadId = id;
+  localStorage.setItem("wedding_thread_id", threadId);
+  updateSid();
+  listEl.innerHTML = "";
+  await loadSessions();
+  try {
+    const resp = await api("/api/v1/chat/messages?thread_id=" + encodeURIComponent(id));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    for (const m of data.messages || []) addMessage(m.role === "user" ? "user" : "assistant", m.content);
+  } catch { /* 忽略 */ }
+}
+
+async function login() {
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value;
+  if (!username || !password) { tipEl.textContent = "用户名和密码都要填"; return; }
+
+  tipEl.textContent = "登录中…";
+  try {
+    const resp = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { tipEl.textContent = data.detail || "登录失败"; return; }
+
+    token = data.access_token;
+    localStorage.setItem("wedding_token", token);
+    localStorage.setItem("wedding_user", data.user.username);
+    tipEl.textContent = "";
+    showChat();
+    loadSessions();
+  } catch (err) {
+    tipEl.textContent = "网络错误：" + err.message;
+  }
+}
+
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  inputEl.value = "";
+  sendBtn.disabled = true;
+  addMessage("user", text);
+  const { bubble, flow, state } = addMessage("assistant", "");
+  state.think = null;      // 当前这一轮的思考框，正文或工具调用出现时就收尾
+
+  // 一段时间没新事件，就提示"模型正在推理"，避免界面看着像卡死
+  const typing = document.createElement("div");
+  typing.className = "typing";
+  typing.textContent = "模型正在推理";
+  typing.hidden = true;
+
+  let lastEvent = Date.now();
+  const ticker = setInterval(() => {
+    if (Date.now() - lastEvent > 1500 && typing.hidden) {
+      typing.hidden = false;
+      flow.appendChild(typing);
+    }
+  }, 400);
+
+  function markActivity() {
+    lastEvent = Date.now();
+    typing.hidden = true;
+  }
+
+  function currentSteps() {
+    return state.stepsEl || flow.querySelector(".steps");
+  }
+
+  function pushText(t) {
+    if (state.stepsEl) state.stepsEl = null;      // 文字插在步骤之后，后面的工具另起一组
+    if (!state.textEl) {
+      state.textEl = document.createElement("div");
+      state.textEl.className = "md";
+      flow.appendChild(state.textEl);
+    }
+    state.textEl._md = (state.textEl._md || "") + t;
+    if (!state.textEl._pending) {
+      state.textEl._pending = setTimeout(() => {
+        state.textEl._pending = null;
+        renderMarkdown(state.textEl);
+      }, 120);
+    }
+  }
+
+  function pushTool(ev) {
+    state.textEl = null;                          // 工具调用紧跟在已有文字之后
+    if (!state.stepsEl) {
+      state.stepsEl = document.createElement("div");
+      state.stepsEl.className = "steps";
+      flow.appendChild(state.stepsEl);
+    }
+    addStep(state.stepsEl, ev);
+  }
+
+  try {
+    const resp = await api("/api/v1/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, thread_id: threadId }),
+    });
+    if (resp.status === 401) { token = ""; localStorage.removeItem("wedding_token"); showLogin("登录已过期，请重新登录"); return; }
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        markActivity();
+        if (ev.type === "text") {
+          closeThink(state.think);
+          state.think = null;
+          pushText(ev.text);
+        }
+        else if (ev.type === "think") {
+          if (!ev.who || ev.who === "协调员") {
+            if (!state.think) state.think = newThink(flow);
+            state.think._buf += ev.text;
+          } else {
+            appendSubThink(currentSteps(), ev);
+          }
+        }
+        else if (ev.type === "tool") {
+          closeThink(state.think);
+          state.think = null;
+          pushTool(ev);
+        }
+        else if (ev.type === "args") appendArgs(currentSteps(), ev.frag);
+        else if (ev.type === "result") finishStep(currentSteps(), ev);
+      }
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+  } catch (err) {
+    pushText("出错了：" + err.message);
+  } finally {
+    clearInterval(ticker);
+    typing.remove();
+    closeThink(state.think);
+    state.think = null;
+    flow.querySelectorAll(".md").forEach((el) => {
+      if (el._pending) { clearTimeout(el._pending); el._pending = null; }
+      renderMarkdown(el);
+    });
+    sendBtn.disabled = false;
+    inputEl.focus();
+    loadSessions();
+  }
+}
+
+document.getElementById("loginBtn").addEventListener("click", login);
+document.getElementById("password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+sendBtn.addEventListener("click", send);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+document.getElementById("newChat").addEventListener("click", () => {
+  threadId = crypto.randomUUID();
+  localStorage.setItem("wedding_thread_id", threadId);
+  updateSid();
+  listEl.innerHTML = "";
+  renderSessions([]);
+  loadSessions();
+  inputEl.focus();
+});
+document.getElementById("logout").addEventListener("click", () => {
+  token = "";
+  localStorage.removeItem("wedding_token");
+  showLogin("已退出");
+});
+
+(async () => {
+  if (!token) { showLogin(""); return; }
+  try {
+    const resp = await api("/api/v1/auth/me");
+    if (!resp.ok) { token = ""; localStorage.removeItem("wedding_token"); showLogin("请重新登录"); return; }
+    const me = await resp.json();
+    localStorage.setItem("wedding_user", me.username);
+    showChat();
+    loadSessions();
+  } catch { showLogin(""); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+services:
+  wedding-agent:
+    build: .
+    image: wedding-agent:latest
+    container_name: wedding-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CHINOOK_DB: /app/data/Chinook.db
+      MATH_MCP: /app/mcp/math_server.py
+      UV_CACHE_DIR: /tmp/uv-cache
+      # 两个数据库都放挂载卷里，别挂到代码目录上，否则会盖掉 app/db 下的代码
+      WEDDING_DB: /app/var/wedding.db
+      USER_DB: /app/var/users.db
+      SESSION_DB: /app/var/sessions.db
+      CACHE_DB: /app/var/cache.db
+      CACHE_TTL: "43200"
+      TZ: Asia/Shanghai
+    ports:
+      # 只绑本机，外网统一走 nginx
+      - "127.0.0.1:8100:8001"
+    volumes:
+      - wedding_db:/app/var
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+volumes:
+  wedding_db:
