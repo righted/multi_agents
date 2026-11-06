@@ -5,6 +5,24 @@
 在线演示：https://agent.langxo.com
 (test/test)
 
+## 界面
+
+登录后进入对话页，左边是历史会话，右边是聊天区。
+
+![登录页](docs/images/login.png)
+
+新开一个会话会先给出开场白，把需要的信息列清楚。
+
+![对话页](docs/images/chat-welcome.png)
+
+回复过程中能看到模型在调用哪些工具：工具名、返回条数、耗时，点开还能看参数和返回内容。
+
+![工具调用过程](docs/images/steps.png)
+
+正文按 Markdown 渲染，表格、列表、引用都能正常显示。
+
+![方案输出](docs/images/plan.png)
+
 ## 四个 agent 分工
 
 协调员是主 agent，负责和用户聊，把出发地、目的地、人数、风格、婚期五个信息凑齐，写进会话状态，然后决定什么时候往下派活。
