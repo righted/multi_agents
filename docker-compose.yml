@@ -14,6 +14,7 @@ services:
       USER_DB: /app/var/users.db
       SESSION_DB: /app/var/sessions.db
       CACHE_DB: /app/var/cache.db
+      STEP_DB: /app/var/steps.db
       CACHE_TTL: "43200"
       TZ: Asia/Shanghai
     ports:

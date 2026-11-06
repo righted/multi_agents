@@ -11,7 +11,7 @@ from app.agents.wedding import build_agent
 from app.api.v1 import auth, chat
 from app.common.logger import setup_logging
 from app.core.auth import hash_password
-from app.db import cache_store, session_store, user_store
+from app.db import cache_store, session_store, step_store, user_store
 
 setup_logging()
 
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     user_store.init_db()
     session_store.init_db()
     cache_store.init_db()
+    step_store.init_db()
     cache_store.cleanup()
     user_store.seed_users(
         {

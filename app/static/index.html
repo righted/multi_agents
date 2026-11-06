@@ -146,6 +146,7 @@
     }
     .typing { font-size: 12.5px; color: #a0a7b4; padding: 4px 0; }
     .typing::after { content: "…"; animation: think-blink 1.2s steps(2, start) infinite; }
+    .summary { margin-top: 8px; font-size: 12px; color: #a0a7b4; }
 
     footer { padding: 14px 20px 20px; background: #fff; border-top: 1px solid #e5e6eb; }
     .input-wrap { max-width: 780px; margin: 0 auto; display: flex; gap: 10px; }
@@ -231,6 +232,22 @@ const TOOL_LABELS = {
   convert_time: "时区换算",
 };
 
+const WELCOME_TEXT = `你好！我是你的婚礼协调员，很高兴为你服务 💍
+
+为了帮你筹备一场完美的婚礼，我先了解几件事：
+
+1. **出发地** —— 你和宾客从哪个城市出发？
+2. **目的地** —— 想在哪个城市或地点举办婚礼？
+3. **人数** —— 大概多少位宾客参加？
+4. **婚礼风格** —— 比如海岛浪漫、草坪清新、教堂庄严、极简现代
+5. **婚期** —— 计划在哪一天举行？
+
+一次性告诉我也可以，我们慢慢聊也行。信息齐了，我就去查航班、找场地、排歌单。`;
+
+function showWelcomeIfEmpty() {
+  if (!listEl.children.length) addMessage("assistant", WELCOME_TEXT);
+}
+
 function showLogin(msg) {
   loginEl.classList.remove("hidden");
   appEl.classList.add("hidden");
@@ -242,6 +259,7 @@ function showChat() {
   appEl.classList.remove("hidden");
   document.getElementById("currentUser").textContent = localStorage.getItem("wedding_user") || "";
   updateSid();
+  showWelcomeIfEmpty();
   inputEl.focus();
 }
 
@@ -365,6 +383,24 @@ function finishStep(stepsEl, ev) {
   target.querySelector(".step-body").textContent = parts.join("\n\n");
 }
 
+function ensureSteps(flow) {
+  let el = flow.querySelector(".steps");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "steps";
+    flow.insertBefore(el, flow.firstChild);
+  }
+  return el;
+}
+
+function renderStoredSteps(stepsEl, steps) {
+  if (!stepsEl) return;
+  for (const step of steps) {
+    if (step.t === "tool") addStep(stepsEl, step);
+    else if (step.t === "result") finishStep(stepsEl, step);
+  }
+}
+
 function newThink(flow) {
   const box = document.createElement("div");
   box.className = "think running";
@@ -447,8 +483,14 @@ async function openSession(id) {
     const resp = await api("/api/v1/chat/messages?thread_id=" + encodeURIComponent(id));
     if (!resp.ok) return;
     const data = await resp.json();
-    for (const m of data.messages || []) addMessage(m.role === "user" ? "user" : "assistant", m.content);
-  } catch { /* 忽略 */ }
+    for (const m of data.messages || []) {
+      const msg = addMessage(m.role === "user" ? "user" : "assistant", m.content);
+      if (m.steps && m.steps.length) renderStoredSteps(ensureSteps(msg.flow), m.steps);
+    }
+    showWelcomeIfEmpty();
+  } catch (err) {
+    console.warn("加载历史失败：", err);
+  }
 }
 
 async function login() {
@@ -579,6 +621,12 @@ async function send() {
           state.think = null;
           pushTool(ev);
         }
+        else if (ev.type === "summary") {
+          const tip = document.createElement("div");
+          tip.className = "summary";
+          tip.textContent = `🛠 工具调用 ${ev.tool_calls} 次`;
+          flow.appendChild(tip);
+        }
         else if (ev.type === "args") appendArgs(currentSteps(), ev.frag);
         else if (ev.type === "result") finishStep(currentSteps(), ev);
       }
@@ -614,6 +662,7 @@ document.getElementById("newChat").addEventListener("click", () => {
   listEl.innerHTML = "";
   renderSessions([]);
   loadSessions();
+  showWelcomeIfEmpty();
   inputEl.focus();
 });
 document.getElementById("logout").addEventListener("click", () => {

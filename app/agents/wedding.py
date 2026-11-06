@@ -16,7 +16,7 @@ from langgraph.types import Command
 
 from app.agents.llm import ReasoningChatOpenAI
 from app.common.logger import logger, setup_logging
-from app.db import cache_store
+from app.db import cache_store, step_store
 
 load_dotenv()
 setup_logging()
@@ -68,6 +68,9 @@ class WeddingState(AgentState):
     number: str        # 人数
     type: str          # 音乐风格
     date: str          # 婚期
+
+
+
 
 
 async def _load_mcp_tools():
@@ -230,7 +233,7 @@ async def build_agent(checkpointer):
             "你是婚礼协调员。你负责与用户沟通,找到更新状态所需的所有信息,并更新到state。"
             "需要问清出发地、目的地、人数、婚礼风格和婚期,问清后用 update_info 一次性记录,婚期放进 date。"
             "一旦完成,你就可以委派任务了。将查找航班、搜索场地和策划播放列表的任务委派给您的专家Agent。"
-            "当你收到他们的答案，为我设计一场完美的婚礼方案。"
+            "当你收到他们的答案，设计一场完美的婚礼方案。"
         ),
     )
 
@@ -315,6 +318,8 @@ async def chat_stream(agent, message: str, thread_id: str):
     current_tool = {"name": ""}          # 主图当前在跑哪个工具，用来给子 agent 归属
     buf: dict[str, list[str]] = {}       # 子 agent 的思考先攒着，攒够一段再发
     _search_fail.pop(thread_id, None)
+    tool_calls = 0                      # 这一轮所有工具调用的次数（含子 agent）
+    step_log: list[dict] = []           # 存给历史回看用
 
     def label(namespace) -> str:
         if not namespace:
@@ -326,7 +331,7 @@ async def chat_stream(agent, message: str, thread_id: str):
 
     try:
         async for item in agent.astream(
-            {"messages": [HumanMessage(message)]},
+            {"messages": [HumanMessage(message)], "tool_call_count": 0},
             config,
             stream_mode="messages",
             subgraphs=True,          # 子 agent 的事件也一起冒出来
@@ -353,9 +358,9 @@ async def chat_stream(agent, message: str, thread_id: str):
                         started.setdefault(key, time.monotonic())
                         if not namespace:
                             current_tool["name"] = call["name"]
-                        yield _event(
-                            {"type": "tool", "who": _owner(call["name"], who), "name": call["name"]}
-                        )
+                        owner = _owner(call["name"], who)
+                        step_log.append({"t": "tool", "who": owner, "name": call["name"]})
+                        yield _event({"type": "tool", "who": owner, "name": call["name"]})
                     if call.get("args"):
                         yield _event({"type": "args", "frag": call["args"]})
 
@@ -364,6 +369,7 @@ async def chat_stream(agent, message: str, thread_id: str):
                     yield _event({"type": "text", "text": text})
 
             elif isinstance(chunk, ToolMessage):
+                tool_calls += 1                    # 顶层和子 agent 的工具都算
                 name = chunk.name or ""
                 key = chunk.tool_call_id or name
                 elapsed = time.monotonic() - started.pop(key, time.monotonic())
@@ -374,16 +380,33 @@ async def chat_stream(agent, message: str, thread_id: str):
                     if parts:
                         yield _event({"type": "think", "who": who_left, "text": "".join(parts)})
                         parts.clear()
+                detail = _shorten(chunk.content, 400)
+                summary = _summarize(chunk.content)
+                owner = _owner(name, who)
+                step_log.append(
+                    {"t": "result", "who": owner, "name": name, "summary": summary,
+                     "detail": detail, "ms": int(elapsed * 1000)}
+                )
                 yield _event(
                     {
                         "type": "result",
-                        "who": _owner(name, who),
+                        "who": owner,
                         "name": name,
-                        "summary": _summarize(chunk.content),
-                        "detail": _shorten(chunk.content),
+                        "summary": summary,
+                        "detail": detail,
                         "ms": int(elapsed * 1000),
                     }
                 )
+
+        try:                                   # 把这一轮的步骤按轮次存下来，回看历史时还原
+            snapshot = await agent.aget_state(config)
+            msgs = (snapshot.values or {}).get("messages", [])
+            turn_no = sum(1 for m in msgs if isinstance(m, HumanMessage))   # 一轮对应一条用户消息
+            step_store.save(thread_id, turn_no, step_log)
+        except Exception as exc:
+            logger.warning(f"[步骤存档] 失败: {exc}")
+
+        yield _event({"type": "summary", "tool_calls": tool_calls})
     except Exception as exc:                              # 出错也别把连接掐断，给前端一条提示
         logger.exception("对话流中断")
         yield _event({"type": "text", "text": f"\n[执行出错] {type(exc).__name__}: {exc}"})
@@ -400,12 +423,16 @@ async def get_messages(checkpointer, thread_id: str) -> list[dict[str, str]]:
 
     result: list[dict[str, str]] = []
     for msg in messages:
-        if not msg.content:
+        if not msg.content or not isinstance(msg.content, str):
             continue
         if isinstance(msg, HumanMessage):
             result.append({"role": "user", "content": msg.content})
         elif isinstance(msg, AIMessage):
-            result.append({"role": "assistant", "content": msg.content})
+            # 同一轮里模型可能说好几段，合并成一个气泡，和实时看到的一致
+            if result and result[-1]["role"] == "assistant":
+                result[-1]["content"] += "\n\n" + msg.content
+            else:
+                result.append({"role": "assistant", "content": msg.content})
     return result
 
 
