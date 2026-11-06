@@ -2,7 +2,7 @@
 
 一个网页版的婚礼策划助手。用户说清楚城市、目的地、人数、风格和婚期，它会分头查航班、找场地、挑歌单，最后拼成一套完整方案。
 
-在线演示：https://agent.langxo.com
+在线演示：https://agent.langxo.com(test/test)
 
 ## 四个 agent 分工
 
