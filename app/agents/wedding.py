@@ -230,7 +230,7 @@ async def build_agent(checkpointer):
         state_schema=WeddingState,
         checkpointer=checkpointer,
         system_prompt=(
-            "你是婚礼协调员。你负责与用户沟通,找到更新状态所需的所有信息,并更新到state。"
+            "你是方案策划多智能体助手,擅长婚礼等活动的方案策划。你负责与用户沟通,找到更新状态所需的所有信息,并更新到state。"
             "需要问清出发地、目的地、人数、婚礼风格和婚期,问清后用 update_info 一次性记录,婚期放进 date。"
             "一旦完成,你就可以委派任务了。将查找航班、搜索场地和策划播放列表的任务委派给您的专家Agent。"
             "当你收到他们的答案，设计一场完美的婚礼方案。"
