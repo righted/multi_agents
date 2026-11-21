@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.wedding import chat_stream, clear_messages, get_messages
+from app.agents.wedding import chat_stream, clear_messages, compact_thread, get_messages
 from app.core.auth import get_current_user
 from app.db import session_store, step_store
-from app.models.schemas import ChatRequest
+from app.models.schemas import ChatRequest, CompactRequest
 
 router = APIRouter()
 
@@ -20,6 +20,12 @@ async def chat_endpoint(body: ChatRequest, request: Request, user: dict = Depend
         media_type="text/plain; charset=utf-8",
     )
 
+
+@router.post("/chat/compact")
+async def compact_chat(body: CompactRequest, request: Request, user: dict = Depends(get_current_user)):
+    """手动压缩：把较早的对话压成纪要，保留最近几条原文"""
+    full_id = f"u{user['id']}-{body.thread_id}"
+    return await compact_thread(request.app.state.checkpointer, full_id, body.focus or "")
 
 @router.get("/chat/sessions")
 async def list_chat_sessions(user: dict = Depends(get_current_user)):

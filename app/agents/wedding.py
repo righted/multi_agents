@@ -6,7 +6,8 @@ import sys
 
 from dotenv import load_dotenv
 from langchain.agents import AgentState, create_agent
-from langchain.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain.agents.middleware import wrap_model_call
+from langchain.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
 from langchain_community.utilities import SQLDatabase
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -16,7 +17,8 @@ from langgraph.types import Command
 
 from app.agents.llm import ReasoningChatOpenAI
 from app.common.logger import logger, setup_logging
-from app.db import cache_store, step_store
+from app.agents.compaction import summarize
+from app.db import cache_store, step_store, summary_store
 
 load_dotenv()
 setup_logging()
@@ -24,6 +26,9 @@ setup_logging()
 CHINOOK_DB = os.getenv("CHINOOK_DB", r"D:\Learn\LangChain\my_learning\Chinook.db")
 MATH_MCP = os.getenv("MATH_MCP", r"D:\Learn\LangChain\Learn\0303_02_MCP_自定义.py")
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL", "43200"))   # 航班等查询结果缓存 12 小时
+
+# 当前会话的压缩纪要，按 thread_id 缓存，供模型调用前替换历史
+_active_summary: dict[str, str] = {}
 
 # 单次对话里网页搜索连续失败的次数（按 thread_id 记），用来及时止损
 _search_fail: dict[str, int] = {}
@@ -71,6 +76,23 @@ class WeddingState(AgentState):
 
 
 
+
+
+@wrap_model_call(state_schema=WeddingState)
+async def apply_summary(request, handler):
+    """有压缩纪要时，把早前的原文换成纪要，只保留最近的对话"""
+    try:
+        tid = ((request.runtime.config or {}).get("configurable") or {}).get("thread_id", "") if request.runtime else ""
+    except Exception:
+        tid = ""
+    summary = _active_summary.get(tid)
+    if not summary:
+        return await handler(request)
+
+    msgs = list(request.messages or [])
+    recent = msgs[-6:] if len(msgs) > 6 else msgs
+    note = SystemMessage(content=f"以下是早前对话的纪要，已经不是原文：\n{summary}")
+    return await handler(request.override(messages=[note] + recent))
 
 
 async def _load_mcp_tools():
@@ -228,6 +250,7 @@ async def build_agent(checkpointer):
         model=model,
         tools=[flight, search, music, update_info],
         state_schema=WeddingState,
+        middleware=[apply_summary],
         checkpointer=checkpointer,
         system_prompt=(
             "你是方案策划多智能体助手,擅长婚礼等活动的方案策划。你负责与用户沟通,找到更新状态所需的所有信息,并更新到state。"
@@ -318,6 +341,7 @@ async def chat_stream(agent, message: str, thread_id: str):
     current_tool = {"name": ""}          # 主图当前在跑哪个工具，用来给子 agent 归属
     buf: dict[str, list[str]] = {}       # 子 agent 的思考先攒着，攒够一段再发
     _search_fail.pop(thread_id, None)
+    _active_summary[thread_id] = summary_store.get(thread_id) or ''
     tool_calls = 0                      # 这一轮所有工具调用的次数（含子 agent）
     step_log: list[dict] = []           # 存给历史回看用
 
@@ -410,7 +434,38 @@ async def chat_stream(agent, message: str, thread_id: str):
     except Exception as exc:                              # 出错也别把连接掐断，给前端一条提示
         logger.exception("对话流中断")
         yield _event({"type": "text", "text": f"\n[执行出错] {type(exc).__name__}: {exc}"})
+    finally:
+        _active_summary.pop(thread_id, None)
 
+
+async def compact_thread(checkpointer, thread_id: str, focus: str = "") -> dict:
+    """把较早的对话压成纪要，保留最近 6 条原文"""
+    snapshot = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
+    if not snapshot:
+        return {"ok": False, "message": "这个会话还没有历史"}
+
+    values = snapshot.checkpoint.get("channel_values") or {}
+    msgs = values.get("messages") or []
+    if len(msgs) <= 8:
+        return {"ok": False, "message": "历史还不长，暂时不用压缩"}
+
+    older = msgs[:-6]
+    lines = []
+    for m in older:
+        content = getattr(m, "content", None)
+        if not isinstance(content, str) or not content.strip():
+            continue
+        who = "用户" if isinstance(m, HumanMessage) else "助手"
+        lines.append(f"{who}: {content.strip()[:600]}")
+
+    facts = {k: values.get(k) for k in ("origin", "destination", "number", "type", "date") if values.get(k)}
+    summary = await summarize(model, "\n\n".join(lines), facts, focus)
+    if not summary:
+        return {"ok": False, "message": "生成纪要失败，稍后再试"}
+
+    summary_store.save(thread_id, summary, len(older))
+    logger.info(f"[压缩] {thread_id} 压缩 {len(older)} 条，保留 6 条")
+    return {"ok": True, "summary": summary, "compressed": len(older), "kept": 6}
 
 async def get_messages(checkpointer, thread_id: str) -> list[dict[str, str]]:
     """按 thread_id 取回历史消息。"""

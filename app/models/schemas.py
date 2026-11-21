@@ -26,6 +26,12 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+# --- 压缩 ---
+class CompactRequest(BaseModel):
+    thread_id: str
+    focus: Optional[str] = None
+
+
 # --- 对话相关 ---
 class ChatRequest(BaseModel):
     message: str
