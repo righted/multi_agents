@@ -1,12 +1,13 @@
 """婚礼多智能体：主协调员 + 航班 / 场地 / 音乐三个子 agent"""
 
 import asyncio
+from contextvars import ContextVar
 import os
 import sys
 
 from dotenv import load_dotenv
 from langchain.agents import AgentState, create_agent
-from langchain.agents.middleware import wrap_model_call
+from langchain.agents.middleware import wrap_model_call, wrap_tool_call
 from langchain.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
 from langchain_community.utilities import SQLDatabase
@@ -95,6 +96,30 @@ async def apply_summary(request, handler):
     return await handler(request.override(messages=[note] + recent))
 
 
+# 单轮对话里网页搜索的次数预算，由中间件在执行前检查
+_search_budget: ContextVar[dict] = ContextVar("search_budget", default={"used": 0, "limit": 0})
+
+
+@wrap_tool_call
+async def limit_web_search(request, handler):
+    """限制网页搜索工具的单轮调用次数，超了就直接回一句，不再打接口"""
+    name = (request.tool_call or {}).get("name", "")
+    if not name.startswith("tavily_"):
+        return await handler(request)
+
+    budget = _search_budget.get()
+    limit = budget.get("limit", 0)
+    if limit and budget["used"] >= limit:
+        logger.info(f"[限额] {name} 已达上限 {limit} 次")
+        return ToolMessage(
+            content=f"网页搜索已达单轮上限 {limit} 次，请基于已检索到的信息作答，不要再调用搜索。",
+            tool_call_id=request.tool_call.get("id"),
+            name=name,
+        )
+
+    budget["used"] += 1
+    return await handler(request)
+
 async def _load_mcp_tools():
     """取 MCP 工具列表；连不上就降级，不让整个服务起不来。"""
     try:
@@ -141,6 +166,7 @@ async def build_agent(checkpointer):
         model=model,
         tools=search_tools or [web_search],       # 中转站连不上时退回自带的 Tavily 搜索
         system_prompt="你是场地专家,你在指定的位置搜索满足要求的场地。单次搜索不超过12次",
+        middleware=[limit_web_search],
     )
     agent_with_music = create_agent(
         model=model,
@@ -342,6 +368,7 @@ async def chat_stream(agent, message: str, thread_id: str):
     buf: dict[str, list[str]] = {}       # 子 agent 的思考先攒着，攒够一段再发
     _search_fail.pop(thread_id, None)
     _active_summary[thread_id] = summary_store.get(thread_id) or ''
+    _search_budget.set({"used": 0, "limit": int(os.getenv("SEARCH_LIMIT", "20"))})
     tool_calls = 0                      # 这一轮所有工具调用的次数（含子 agent）
     step_log: list[dict] = []           # 存给历史回看用
 

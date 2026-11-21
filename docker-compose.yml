@@ -16,6 +16,7 @@ services:
       CACHE_DB: /app/var/cache.db
       STEP_DB: /app/var/steps.db
       SUMMARY_DB: /app/var/summaries.db
+      SEARCH_LIMIT: "20"
       CACHE_TTL: "43200"
       TZ: Asia/Shanghai
     ports:
