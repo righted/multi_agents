@@ -473,10 +473,21 @@ async def compact_thread(checkpointer, thread_id: str, focus: str = "") -> dict:
 
     values = snapshot.checkpoint.get("channel_values") or {}
     msgs = values.get("messages") or []
-    if len(msgs) <= 8:
-        return {"ok": False, "message": "历史还不长，暂时不用压缩"}
 
-    older = msgs[:-6]
+    # 保留最近的一段原文，按字符预算往前收，至少留两条
+    budget = int(os.getenv("COMPACT_KEEP_CHARS", "6000"))
+    keep: list = []
+    for m in reversed(msgs):
+        content = getattr(m, "content", "")
+        size = len(content) if isinstance(content, str) else 0
+        if keep and budget - size < 0:
+            break
+        keep.insert(0, m)
+        budget -= size
+
+    older = msgs[: len(msgs) - len(keep)]
+    if len(older) < 2:
+        return {"ok": False, "message": "最近几条已经覆盖了全部内容，暂时不用压缩"}
     lines = []
     for m in older:
         content = getattr(m, "content", None)
@@ -491,8 +502,8 @@ async def compact_thread(checkpointer, thread_id: str, focus: str = "") -> dict:
         return {"ok": False, "message": "生成纪要失败，稍后再试"}
 
     summary_store.save(thread_id, summary, len(older))
-    logger.info(f"[压缩] {thread_id} 压缩 {len(older)} 条，保留 6 条")
-    return {"ok": True, "summary": summary, "compressed": len(older), "kept": 6}
+    logger.info(f"[压缩] {thread_id} 压缩 {len(older)} 条，保留 {len(keep)} 条")
+    return {"ok": True, "summary": summary, "compressed": len(older), "kept": len(keep)}
 
 async def get_messages(checkpointer, thread_id: str) -> list[dict[str, str]]:
     """按 thread_id 取回历史消息。"""
